@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Country Manager</title>
+    <style>
+        :root{--bg:#f5f6fa;--card:#fff;--text:#1f2430;--muted:#6b7280;--line:#e5e7eb;--brand:#2563eb;--danger:#dc2626}
+        @media (prefers-color-scheme:dark){:root{--bg:#0f1218;--card:#181c25;--text:#e8eaf0;--muted:#9aa3b2;--line:#2a303c;--brand:#5b8def;--danger:#f0645f}}
+        *{box-sizing:border-box}
+        body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--text)}
+        header,main{max-width:860px;margin:0 auto;padding-left:20px;padding-right:20px}
+        header{padding-top:28px}
+        h1{margin:0;font-size:1.6rem}
+        header p{margin:4px 0 0;color:var(--muted)}
+        main{padding-top:16px;padding-bottom:48px;display:grid;gap:16px}
+        .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px}
+        h2{margin:0 0 12px;font-size:1.05rem}
+        form{display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end}
+        label{display:grid;gap:4px;font-size:.85rem;color:var(--muted)}
+        input{padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);font:inherit;width:100%}
+        input:focus{outline:2px solid var(--brand);border-color:transparent}
+        button{padding:9px 14px;border:0;border-radius:8px;font:inherit;cursor:pointer;background:var(--brand);color:#fff}
+        button.ghost{background:transparent;color:var(--text);border:1px solid var(--line)}
+        button.danger{background:transparent;color:var(--danger);border:1px solid var(--line)}
+        button:hover{filter:brightness(1.08)}
+        .bar{display:flex;gap:10px;justify-content:space-between;align-items:center;margin-bottom:12px}
+        .bar h2{margin:0}
+        .bar input{max-width:260px}
+        .count{color:var(--muted);font-weight:400}
+        table{width:100%;border-collapse:collapse}
+        th,td{text-align:left;padding:10px 8px;border-bottom:1px solid var(--line)}
+        th{font-size:.8rem;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+        td.actions{text-align:right;white-space:nowrap}
+        td.actions button{padding:5px 10px;margin-left:6px;font-size:.85rem}
+        .empty{color:var(--muted);text-align:center;padding:24px 0}
+        #toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#111;color:#fff;padding:10px 16px;border-radius:8px;opacity:0;pointer-events:none;transition:opacity .2s}
+        #toast.show{opacity:1}
+        @media(max-width:600px){form{grid-template-columns:1fr}.bar{flex-direction:column;align-items:stretch}.bar input{max-width:none}}
+    </style>
+</head>
+<body>
+<header>
+    <h1>🌍 Country Manager</h1>
+    <p>Add, edit, and remove countries using your Country API.</p>
+</header>
+<main>
+    <section class="card">
+        <h2 id="formTitle">Add a country</h2>
+        <form id="form">
+            <label>Name<input id="name" required placeholder="e.g. Philippines"></label>
+            <label>Language<input id="language" required placeholder="e.g. Filipino"></label>
+            <div>
+                <button type="submit" id="submitBtn">Add</button>
+                <button type="button" class="ghost" id="cancelBtn" hidden>Cancel</button>
+            </div>
+        </form>
+    </section>
+
+    <section class="card">
+        <div class="bar">
+            <h2>Countries <span id="count" class="count"></span></h2>
+            <input id="search" type="search" placeholder="Search name or language...">
+        </div>
+        <table>
+            <thead><tr><th>ID</th><th>Name</th><th>Language</th><th></th></tr></thead>
+            <tbody id="rows"></tbody>
+        </table>
+        <div id="empty" class="empty" hidden>No countries found.</div>
+    </section>
+</main>
+<div id="toast"></div>
+
+<script>
+    const API = '/api/countries';
+    let countries = [];
+    let editingId = null;
+    const $ = id => document.getElementById(id);
+
+    function toast(msg) {
+      const t = $('toast');
+      t.textContent = msg;
+      t.classList.add('show');
+      clearTimeout(toast.timer);
+      toast.timer = setTimeout(() => t.classList.remove('show'), 2800);
+    }
+
+    async function api(url, opts) {
+      const res = await fetch(url, { headers: { 'Content-Type': 'application/json' }, ...opts });
+      if (!res.ok) throw new Error('Request failed (' + res.status + ')');
+      return res.status === 204 ? null : res.json();
+    }
+
+    async function load() {
+      try {
+        countries = await api(API);
+        render();
+      } catch (e) {
+        toast('Could not load countries: ' + e.message);
+      }
+    }
+
+    function render() {
+      const q = $('search').value.trim().toLowerCase();
+      const list = countries.filter(c => ((c.name || '') + ' ' + (c.language || '')).toLowerCase().includes(q));
+      $('count').textContent = '(' + list.length + ')';
+      $('empty').hidden = list.length > 0;
+      const body = $('rows');
+      body.innerHTML = '';
+      list.forEach(c => {
+        const tr = document.createElement('tr');
+        [c.id, c.name, c.language].forEach(v => {
+          const td = document.createElement('td');
+          td.textContent = v ?? '';
+          tr.appendChild(td);
+        });
+        const td = document.createElement('td');
+        td.className = 'actions';
+        const edit = document.createElement('button');
+        edit.className = 'ghost';
+        edit.textContent = 'Edit';
+        edit.onclick = () => startEdit(c);
+        const del = document.createElement('button');
+        del.className = 'danger';
+        del.textContent = 'Delete';
+        del.onclick = () => remove(c);
+        td.append(edit, del);
+        tr.appendChild(td);
+        body.appendChild(tr);
+      });
+    }
+
+    function startEdit(c) {
+      editingId = c.id;
+      $('name').value = c.name;
+      $('language').value = c.language;
+      $('formTitle').textContent = 'Edit country #' + c.id;
+      $('submitBtn').textContent = 'Save';
+      $('cancelBtn').hidden = false;
+      $('name').focus();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function reset() {
+      editingId = null;
+      $('form').reset();
+      $('formTitle').textContent = 'Add a country';
+      $('submitBtn').textContent = 'Add';
+      $('cancelBtn').hidden = true;
+    }
+
+    async function remove(c) {
+      if (!confirm('Delete ' + c.name + '?')) return;
+      try {
+        await api(API + '/' + c.id, { method: 'DELETE' });
+        toast('Deleted ' + c.name);
+        if (editingId === c.id) reset();
+        load();
+      } catch (e) {
+        toast(e.message);
+      }
+    }
+
+    $('form').addEventListener('submit', async ev => {
+      ev.preventDefault();
+      const body = JSON.stringify({ name: $('name').value.trim(), language: $('language').value.trim() });
+      try {
+        if (editingId === null) {
+          await api(API, { method: 'POST', body });
+          toast('Country added');
+        } else {
+          await api(API + '/' + editingId, { method: 'PUT', body });
+          toast('Country updated');
+        }
+        reset();
+        load();
+      } catch (e) {
+        toast(e.message);
+      }
+    });
+
+    $('cancelBtn').onclick = reset;
+    $('search').oninput = render;
+    load();
+</script>
+</body>
+</html>
